@@ -1,6 +1,6 @@
 import os
 os.add_dll_directory(r"C:\Program Files\VideoLAN\VLC")
-import sys
+
 import threading
 import time
 
@@ -12,10 +12,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
-import keyboard
+
 import random
 
-# ------------ Config ------------
+
 SEARCH_QUERIES = [
     "lofi hip hop",
     "chillhop",
@@ -28,7 +28,7 @@ SEARCH_QUERIES = [
 MAX_RESULTS = 10
 INITIAL_VOLUME = 70    
 AUDIO_FORMAT_SELECTOR = "bestaudio[acodec^=opus]/bestaudio/best"  # yt-dlp format string
-# -------------------------------
+
 
 console = Console()
 
@@ -99,6 +99,9 @@ class ConsolePlayer:
         self._running = False
         self.current_duration = 0
         self.last_error = None
+        self._eq_phase = 0
+        self._eq_last_values = [1, 2, 3, 4, 5, 4, 3, 2, 1, 2] #bar heights
+
 
     def check_auto_next(self):
         """If current track finished, start the next one."""
@@ -106,6 +109,33 @@ class ConsolePlayer:
         # State.Ended is the usual end-of-track state
         if state == vlc.State.Ended:
             self.next_track()
+
+    def _fake_equalizer(self, bars=10, max_height=8):
+        
+        # Return string that animated EQ bars
+        # https://rich.readthedocs.io/en/latest/live.html
+        
+        state = self.get_player_state()
+        base = self._eq_last_values
+
+        new_vals = []
+        for v in base:
+            if state == "Playing":
+                delta = random.choice([-1, 0, 1])
+                nv = max(1, min(max_height, v + delta))
+            else:
+                # if not playing, slowly relax to small bars
+                nv = max(1, v - 1)
+            new_vals.append(nv)
+
+        base = self._eq_last_values[-bars:] if len(self._eq_last_values) > bars else self._eq_last_values
+        if len(base) < bars:
+            base += [1] * (bars - len(base))
+
+        self._eq_last_values = new_vals
+
+        levels = "▁▂▃▄▅▆▇█"
+        return "".join(levels[min(max_height - 1, v - 1)] for v in new_vals)
 
     def _load_current_track(self):
         track = self.tracks[self.index]
@@ -198,12 +228,15 @@ class ConsolePlayer:
         vol_bar = "█" * vol_filled + "░" * (20 - vol_filled)
         volume_line = Text(f"Volume: [{vol_bar}] {vol}%", style="yellow")
 
+        eq = self._fake_equalizer()
+
         controls = Text(
             "[⏮  a]  [⏸  space]  [⏭  d]  [q  quit] \n[🔊  w]    [🔉  s]",
             style="dim white",
             justify="center",
         )
 
+        equalizer = Text(eq, style="dim green",justify="center")
 
         # Status
         status_text = f"[{self.index + 1}/{len(self.tracks)}] {state}"
@@ -218,6 +251,8 @@ class ConsolePlayer:
 {volume_line}
 
 {controls}
+
+{equalizer}
 
 {status}
 """
